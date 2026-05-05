@@ -1,8 +1,12 @@
 # mlx-qre
 
-GPU-accelerated **Quantum Relative Entropy** on Apple Silicon via [MLX](https://github.com/ml-explore/mlx).
+**Quantum Relative Entropy + Petz Recovery toolkit** on Apple Silicon via [MLX](https://github.com/ml-explore/mlx).
 
 $$\Sigma = D(\rho \| \sigma) = \mathrm{Tr}[\rho(\ln\rho - \ln\sigma)]$$
+
+A complete, self-contained library for quantum information quantities (QRE, von Neumann entropy, Rényi / JSD), quantum channels (thermal attenuator, depolarizing, dephasing) and Petz recovery analysis (recovery map, fidelity, retrodiction). Built as the computational companion to the **Σ = 2 ln Q** entropy-production framework — see [petz-recovery-unification](https://github.com/akaiHuang/petz-recovery-unification) and [tau-chrono](https://github.com/akaiHuang/tau-chrono).
+
+> **Performance note.** Eigendecomposition runs on the Metal GPU via MLX. For **small matrices (N < 500)**, NumPy + Accelerate (CPU) is typically faster due to lower dispatch overhead — use NumPy if you only need a handful of small QREs. The GPU path becomes useful for **batched evaluation** and **N ≥ 500**, where it pulls ahead of NumPy. See [benchmark_results.md](benchmark_results.md) for the full breakdown.
 
 ## Installation
 
@@ -37,7 +41,7 @@ D_batch = quantum_relative_entropy(rho_batch, sigma_batch)
 
 | Module | Function | Description |
 |--------|----------|-------------|
-| `qre` | `quantum_relative_entropy(rho, sigma)` | D(rho \|\| sigma) via GPU eigendecomposition |
+| `qre` | `quantum_relative_entropy(rho, sigma)` | D(rho \|\| sigma) via Metal eigendecomposition |
 | `qre` | `von_neumann_entropy(rho)` | S(rho) = -Tr[rho ln rho] |
 | `qre` | `relative_entropy_pure_state(psi, sigma)` | Efficient D for pure states: -ln(psi\|sigma\|psi) |
 | `classical` | `kl_divergence(p, q)` | Classical KL divergence |
@@ -66,7 +70,16 @@ D_batch = quantum_relative_entropy(rho_batch, sigma_batch)
 python -m mlx_qre.benchmark
 ```
 
-Compares MLX (Apple Silicon GPU) vs NumPy (CPU) across matrix sizes N = 10 to 1000.
+Compares MLX (Apple Silicon GPU) vs NumPy (CPU) across matrix sizes N = 10 to 1000. Summary on M1 Max:
+
+| N | MLX (ms) | NumPy (ms) | MLX vs NumPy |
+|---:|---:|---:|---:|
+| 10 | 0.74 | 0.04 | **0.06×** (NumPy wins) |
+| 100 | 3.95 | 3.57 | 0.90× |
+| 500 | 158 | 278 | 1.76× |
+| 1000 | 1042 | 2010 | 1.93× |
+
+For batched QRE at N=100 the GPU sustains ~460 pairs/sec. **Use NumPy for one-off small problems; reach for `mlx-qre` for batched / large-N work and for the integrated Petz / channel utilities below.** See [benchmark_results.md](benchmark_results.md) for the full table.
 
 ## Tests
 
