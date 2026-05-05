@@ -42,7 +42,14 @@ D_batch = quantum_relative_entropy(rho_batch, sigma_batch)
 For `N >= 1000` the O(N^3) eigendecomposition is the bottleneck and the
 Metal `eigh` kernel can hit GPU command-buffer timeouts past `N = 2000`.
 mlx-qre ships a Stochastic Lanczos Quadrature (SLQ) estimator that
-replaces the eigendecomposition with `O(k * m * N^2)` matvecs:
+replaces the eigendecomposition with `O(k * m * N^2)` matvecs.
+
+**This implementation runs entirely on MLX (no NumPy fallback in the hot
+path).** All m probe vectors are stacked as a single `(N, m)` matrix and
+each Lanczos step is a single block matmul `A @ V`, which both
+amortises GPU dispatch overhead and lets MLX tile the m probes across
+the GPU. Only the small `(k, k)` tridiagonal eigh is delegated to MLX's
+CPU eigh stream (k <= 30 -- CPU is the right place for it).
 
 ```python
 import mlx.core as mx
@@ -67,22 +74,25 @@ D_mx = quantum_relative_entropy(rho, sigma, method="lanczos", k=25, m=20, seed=0
 Typical accuracy at default `k=25, m=20`:
 
 - `S(rho)`: ~1-2% median relative error (clean SLQ on a single matrix)
-- `D(rho || sigma)`: ~5-8% median relative error (cross-term has higher
+- `D(rho || sigma)`: ~3-7% median relative error (cross-term has higher
   variance because `Tr[rho ln sigma]` is not a single-matrix spectral
   function). Increase `m` for tighter accuracy.
 
-Speed crossover (M1 Max, dense complex Haar-random density matrices):
+Speed crossover (M1 Max, dense complex Haar-random density matrices,
+SLQ at `k=25, m=20`):
 
-| N    | MLX eigh (ms) | NumPy eigh (ms) | SLQ k=25 m=20 (ms) |
+| N    | MLX eigh (ms) | NumPy eigh (ms) | SLQ pure-MLX (ms) |
 |---:  |---:|---:|---:|
-| 100  |    5 |    4 |   33 |
-| 500  |  158 |  307 |  256 |
-| 1000 | 1109 | 1994 |  957 |
-| 2000 | timeout | 21153 | 5816 |
+| 100  |    4 |    4 |   19 |
+| 500  |  160 |  287 |   20 |
+| 1000 | 1077 | 1988 |   24 |
+| 2000 | timeout | 24048 |   37 |
 
-So for `N >= 1000` SLQ wins; below that, stick with `method="exact"`.
-See [benchmark_results.md](benchmark_results.md) for the full
-ablation across `(k, m)`.
+SLQ wins from `N >= 500` and the gap blows up at `N >= 1000`
+(~50-80x vs MLX eigh, ~80-660x vs NumPy eigh). The pure-MLX block
+matvec hot path is also ~30-140x faster than the previous
+NumPy-Accelerate hot path on the same machine. See
+[benchmark_results.md](benchmark_results.md) for the full breakdown.
 
 ## Features
 
