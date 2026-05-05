@@ -37,13 +37,63 @@ sigma_batch = random_density_matrix(50, batch_size=500)
 D_batch = quantum_relative_entropy(rho_batch, sigma_batch)
 ```
 
+## Stochastic Lanczos backend (large N)
+
+For `N >= 1000` the O(N^3) eigendecomposition is the bottleneck and the
+Metal `eigh` kernel can hit GPU command-buffer timeouts past `N = 2000`.
+mlx-qre ships a Stochastic Lanczos Quadrature (SLQ) estimator that
+replaces the eigendecomposition with `O(k * m * N^2)` matvecs:
+
+```python
+import mlx.core as mx
+from mlx_qre import (
+    random_density_matrix,
+    quantum_relative_entropy,
+    von_neumann_entropy_lanczos,
+    quantum_relative_entropy_lanczos,
+)
+
+rho = random_density_matrix(2000)
+sigma = random_density_matrix(2000)
+
+# Direct API
+S = von_neumann_entropy_lanczos(rho, k=25, m=20, seed=0)
+D = quantum_relative_entropy_lanczos(rho, sigma, k=25, m=20, seed=0)
+
+# Or via the main API with method="lanczos"
+D_mx = quantum_relative_entropy(rho, sigma, method="lanczos", k=25, m=20, seed=0)
+```
+
+Typical accuracy at default `k=25, m=20`:
+
+- `S(rho)`: ~1-2% median relative error (clean SLQ on a single matrix)
+- `D(rho || sigma)`: ~5-8% median relative error (cross-term has higher
+  variance because `Tr[rho ln sigma]` is not a single-matrix spectral
+  function). Increase `m` for tighter accuracy.
+
+Speed crossover (M1 Max, dense complex Haar-random density matrices):
+
+| N    | MLX eigh (ms) | NumPy eigh (ms) | SLQ k=25 m=20 (ms) |
+|---:  |---:|---:|---:|
+| 100  |    5 |    4 |   33 |
+| 500  |  158 |  307 |  256 |
+| 1000 | 1109 | 1994 |  957 |
+| 2000 | timeout | 21153 | 5816 |
+
+So for `N >= 1000` SLQ wins; below that, stick with `method="exact"`.
+See [benchmark_results.md](benchmark_results.md) for the full
+ablation across `(k, m)`.
+
 ## Features
 
 | Module | Function | Description |
 |--------|----------|-------------|
-| `qre` | `quantum_relative_entropy(rho, sigma)` | D(rho \|\| sigma) via Metal eigendecomposition |
+| `qre` | `quantum_relative_entropy(rho, sigma, method="exact"\|"lanczos")` | D(rho \|\| sigma) via Metal eigendecomposition or SLQ |
 | `qre` | `von_neumann_entropy(rho)` | S(rho) = -Tr[rho ln rho] |
 | `qre` | `relative_entropy_pure_state(psi, sigma)` | Efficient D for pure states: -ln(psi\|sigma\|psi) |
+| `lanczos` | `von_neumann_entropy_lanczos(rho, k, m)` | S(rho) via Stochastic Lanczos Quadrature |
+| `lanczos` | `quantum_relative_entropy_lanczos(rho, sigma, k, m)` | D via Hutchinson + Lanczos |
+| `lanczos` | `stochastic_lanczos_logtr(A, k, m)` | Tr[A ln A] for any Hermitian PSD A |
 | `classical` | `kl_divergence(p, q)` | Classical KL divergence |
 | `classical` | `jensen_shannon_divergence(p, q)` | Symmetric JSD |
 | `classical` | `renyi_divergence(p, q, alpha)` | Renyi divergence of order alpha |

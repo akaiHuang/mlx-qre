@@ -24,6 +24,14 @@ from mlx_qre.qre import (
     matrix_log,
     is_density_matrix,
     random_density_matrix,
+    von_neumann_entropy,
+)
+from mlx_qre.lanczos import (
+    lanczos_tridiag,
+    stochastic_lanczos_logtr,
+    von_neumann_entropy_lanczos,
+    stochastic_lanczos_cross_logtr,
+    quantum_relative_entropy_lanczos,
 )
 from mlx_qre.classical import (
     kl_divergence,
@@ -48,6 +56,13 @@ __all__ = [
     "matrix_log",
     "is_density_matrix",
     "random_density_matrix",
+    "von_neumann_entropy",
+    # Stochastic Lanczos estimators
+    "lanczos_tridiag",
+    "stochastic_lanczos_logtr",
+    "von_neumann_entropy_lanczos",
+    "stochastic_lanczos_cross_logtr",
+    "quantum_relative_entropy_lanczos",
     # Classical
     "kl_divergence",
     "jensen_shannon_divergence",

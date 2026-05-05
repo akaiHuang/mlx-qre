@@ -72,11 +72,24 @@ def quantum_relative_entropy(
     sigma: mx.array,
     eps: float = _EPS,
     check_inputs: bool = False,
+    method: str = "exact",
+    k: int = 25,
+    m: int = 20,
+    seed: Optional[int] = None,
 ) -> mx.array:
     """
     Quantum relative entropy: D(rho || sigma) = Tr[rho (ln rho - ln sigma)].
 
-    GPU-accelerated via MLX eigendecomposition on Apple Silicon.
+    Two backends are available:
+
+    - ``method="exact"`` (default): full eigendecomposition of rho and sigma
+      via MLX ``eigh`` on Apple Silicon. Cost O(N^3) per matrix. Returns an
+      ``mx.array`` and supports batched inputs of shape ``(B, N, N)``.
+    - ``method="lanczos"``: Stochastic Lanczos Quadrature estimator (Hutchinson
+      probes + k-step Lanczos). Cost O((2 m) * k * N^2). Useful for very large
+      N where O(N^3) eigh becomes prohibitive (GPU memory / time). Only the
+      single-pair case (no batching) is supported on this path; the result is
+      a Python float wrapped in an ``mx.array`` scalar.
 
     Parameters
     ----------
@@ -91,6 +104,16 @@ def quantum_relative_entropy(
         Eigenvalue floor to handle numerical zeros. Default 1e-30.
     check_inputs : bool
         If True, verify that inputs are valid density matrices.
+    method : {"exact", "lanczos"}
+        Backend; default "exact" preserves the original MLX-eigh behaviour.
+    k : int
+        Lanczos depth (only used when ``method="lanczos"``). Default 25.
+    m : int
+        Number of probe vectors (only used when ``method="lanczos"``).
+        Default 20.
+    seed : int, optional
+        RNG seed for the Lanczos backend (only used when
+        ``method="lanczos"``).
 
     Returns
     -------
@@ -102,7 +125,8 @@ def quantum_relative_entropy(
     - When sigma has zero eigenvalues where rho has nonzero weight, the result
       is formally +inf. We return a large finite value instead.
     - For pure states rho = |psi><psi|, D(rho || sigma) = -ln <psi|sigma|psi>.
-    - Batched: pass shapes (B, N, N) to compute B pairs in parallel on GPU.
+    - Batched: pass shapes (B, N, N) to compute B pairs in parallel on GPU
+      (exact backend only).
 
     Examples
     --------
@@ -111,6 +135,22 @@ def quantum_relative_entropy(
     >>> sigma = mx.array([[0.5, 0.0], [0.0, 0.5]])
     >>> D = quantum_relative_entropy(rho, sigma)
     """
+    if method == "lanczos":
+        # Local import to avoid a hard dependency cycle at import time.
+        from mlx_qre.lanczos import quantum_relative_entropy_lanczos
+        if rho.ndim > 2 or sigma.ndim > 2:
+            raise ValueError(
+                "method='lanczos' does not support batched inputs; "
+                "loop over the batch axis manually."
+            )
+        D_float = quantum_relative_entropy_lanczos(
+            rho, sigma, k=k, m=m, seed=seed, eps=eps
+        )
+        return mx.array(D_float)
+
+    if method != "exact":
+        raise ValueError(f"Unknown method '{method}'; expected 'exact' or 'lanczos'")
+
     rho = _ensure_complex(rho)
     sigma = _ensure_complex(sigma)
 
